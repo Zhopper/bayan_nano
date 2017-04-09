@@ -250,6 +250,7 @@ char func[10][8]  = {
 #define MD_MAX_CHANNEL 4
 #define MD_SIZE (MD_MAX_CHANNEL*2)
 #define MD_SAVE_DELAY 4000 // Задержка в миллисекундах до сохранения настроек
+#define MD_DEFAULT_NOTE C5
 // Структура, используемая для сохранения настроек
 typedef struct
 {
@@ -382,6 +383,14 @@ void loop() {
             md_offset = MD_SIZE*7;
             register_changed = 1;
           }
+          // Отжата одна из кнопок плюс/минус
+          if ((current_func == _PI) || (current_func == _MI) || (current_func == _PV) || (current_func == _MV) || 
+              (current_func == _C0) || (current_func == _C1) || (current_func == _C2))
+          {
+            for (int cnt=0;cnt<MD_MAX_CHANNEL;cnt++) // На всех каналах
+              Command3 ((0xB0 | cnt),0x7B,0); // Отключить звучание
+          }
+
           // Применить изменения, если они были
           if (register_changed == 1)
           {
@@ -426,67 +435,74 @@ void loop() {
         {        
           // Нажата кнопка "Канал 0", выбрать канал 0
           if (current_func == _C0) {md_current_channel = CHANNEL0; c0_active = 1;
-            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);}
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Канал 1", выбрать канал 1
           if (current_func == _C1) {md_current_channel = CHANNEL1; c1_active = 1;
-            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);}
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Канал 2", выбрать канал 2
           if (current_func == _C2) {md_current_channel = CHANNEL2; c2_active = 1;
-            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);}
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Плюс", задать следующий инструмент и подать команду о его смене для текущего канала
           if (current_func == _PI)
           {
-            if (md_data.md_channel_instrument[md_current_channel]<MD_MAX_INSTRUMENT)
+            if (md_data.md_channel_instrument[md_current_channel]<MD_MAX_INSTRUMENT) // Проверка максимального значения
             {
-              md_data.md_channel_instrument[md_current_channel]++;
-              Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+              md_data.md_channel_instrument[md_current_channel]++; // Прибавить 1 к инструменту
+              Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]); // Сменить инструмент
             }
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127); // Начать звучание установленным инструментом
           }
           // Нажата кнопка "Минус инструмент", задать предыдущий инструмент и подать команду о его смене для текущего канала
           if (current_func == _MI)
           {
-            if (md_data.md_channel_instrument[md_current_channel]>0)
+            if (md_data.md_channel_instrument[md_current_channel]>0) // Проверка минимального значения
             {
-              md_data.md_channel_instrument[md_current_channel]--;
-              Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+              md_data.md_channel_instrument[md_current_channel]--; // Вычесть 1 из инструмента
+              Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]); // Сменить
             }
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127); // Начать звучание установленным инструментом
           }
           // Нажата кнопка "Плюс громкость", увеличить громкость на 1 и подать команду о смене громкости для текущего канала
           if (current_func == _PV)
           {
-            if (md_data.md_channel_volume[md_current_channel]<MD_MAX_VOLUME)
+            if (md_data.md_channel_volume[md_current_channel]<MD_MAX_VOLUME) // Проверка максимального значения
             {
-              md_data.md_channel_volume[md_current_channel]++;
-              Command3 ((0xB0 | md_current_channel),0x07,md_data.md_channel_volume[md_current_channel]);
+              md_data.md_channel_volume[md_current_channel]++; // Прибавить 1 к громкости
+              Command3 ((0xB0 | md_current_channel),0x07,md_data.md_channel_volume[md_current_channel]); // Сменить громкость
             }
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127); // Начать звучание установленным инструментом
           }
           // Нажата кнопка "Минус громкость", уменьшить громкость на 1 и подать команду о смене громкости для текущего канала
           if (current_func == _MV)
           {
-            if (md_data.md_channel_volume[md_current_channel]>0)
+            if (md_data.md_channel_volume[md_current_channel]>0) // Проверка минимального значения
             {
-              md_data.md_channel_volume[md_current_channel]--;
-              Command3 ((0xB0 | md_current_channel),0x07,md_data.md_channel_volume[md_current_channel]);
+              md_data.md_channel_volume[md_current_channel]--; // Убавить 1 из громкости
+              Command3 ((0xB0 | md_current_channel),0x07,md_data.md_channel_volume[md_current_channel]); // Сменить громкость
             }
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127); // Начать звучание установленным инструментом
           }
           char register_changed = 0;
-          // Нажата одна из кнопок регистров. Запомнить время нажатия и номер регистра.
-          if (current_func == _R0) // Нажата кнопка "Регистр 0", начать отсчёт времени
-            { md_delay = millis(); md_offset = MD_SIZE*0;register_changed = 1;}
-          if (current_func == _R1) // Нажата кнопка "Регистр 1", начать отсчёт времени
-            { md_delay = millis(); md_offset = MD_SIZE*1;register_changed = 1;}
-          if (current_func == _R2) // Нажата кнопка "Регистр 2", начать отсчёт времени
-            { md_delay = millis(); md_offset = MD_SIZE*2;register_changed = 1;}
-          if (current_func == _R3) // Нажата кнопка "Регистр 3", начать отсчёт времени
-            { md_delay = millis(); md_offset = MD_SIZE*3;register_changed = 1;}
-          if (current_func == _R4) // Нажата кнопка "Регистр 4", начать отсчёт времени
-            { md_delay = millis(); md_offset = MD_SIZE*4;register_changed = 1;}
-          if (current_func == _R5) // Нажата кнопка "Регистр 5", начать отсчёт времени
-            { md_delay = millis(); md_offset = MD_SIZE*5;register_changed = 1;}
-          if (current_func == _R6) // Нажата кнопка "Регистр 6", начать отсчёт времени
-            { md_delay = millis(); md_offset = MD_SIZE*6;register_changed = 1;}
-          if (current_func == _R7) // Нажата кнопка "Регистр 7", начать отсчёт времени
-            { md_delay = millis(); md_offset = MD_SIZE*7;register_changed = 1;}
+          // Нажата одна из кнопок регистров. Запомнить номер регистра.
+          if (current_func == _R0) // Нажата кнопка "Регистр 0"
+            { md_offset = MD_SIZE*0;register_changed = 1;}
+          if (current_func == _R1) // Нажата кнопка "Регистр 1"
+            { md_offset = MD_SIZE*1;register_changed = 1;}
+          if (current_func == _R2) // Нажата кнопка "Регистр 2"
+            { md_offset = MD_SIZE*2;register_changed = 1;}
+          if (current_func == _R3) // Нажата кнопка "Регистр 3"
+            { md_offset = MD_SIZE*3;register_changed = 1;}
+          if (current_func == _R4) // Нажата кнопка "Регистр 4"
+            { md_offset = MD_SIZE*4;register_changed = 1;}
+          if (current_func == _R5) // Нажата кнопка "Регистр 5"
+            { md_offset = MD_SIZE*5;register_changed = 1;}
+          if (current_func == _R6) // Нажата кнопка "Регистр 6"
+            { md_offset = MD_SIZE*6;register_changed = 1;}
+          if (current_func == _R7) // Нажата кнопка "Регистр 7"
+            { md_offset = MD_SIZE*7;register_changed = 1;}
 
           // Сохранить изменения, если они были, а также если нажаты все три кнопки канала одновременно
           if ((register_changed == 1) && (c0_active == 1) && (c1_active == 1) && (c2_active == 1))
