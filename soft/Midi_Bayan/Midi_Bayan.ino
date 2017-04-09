@@ -23,6 +23,8 @@
  http://www.arduino.cc/en/Tutorial/Midi
 
  */
+ 
+#include <EEPROM.h>
 
 // Подключите выводы Arduino Nano как указано ниже:
 
@@ -181,6 +183,8 @@ void setup() {
 #define Bb9 0x76
 #define B9  0x77
 
+#define NNN 0xFF // Отсутствие ноты
+
 // Временные переменные для чтения клавиатуры
 char datap[10] = {0,0,0,0,0,0,0,0,0,0}; // Предыдущее значение нажатых кнопок
 char data[10]  = {0,0,0,0,0,0,0,0,0,0}; // Текущее считанное значение нажатых кнопок
@@ -195,13 +199,81 @@ char notes[10][8]  = {
   {Db5,C5 ,B4 ,Bb4,A4 ,Ab4,G4 ,Fd4}, // Для L3
   {F4 ,E4 ,Eb4,D4 ,Db4,C4 ,B3 ,Bb3}, // Для L4
   {A3 ,Ab3,G3 ,Fd3,F3 ,E3 ,Eb3,D3 }, // Для L5
-  {Db3,C3 ,B2 ,Bb2,Bb2,Bb2,Bb2,Bb2}, // Для L6
+  {Db3,C3 ,B2 ,NNN,NNN,NNN,NNN,NNN}, // Для L6
   {F3, F4 ,Fd3,Fd4,G3, G4, Ab3,Ab4}, // Для L7
   {A3, A4 ,Bb3,Bb4,B3, B4, C3, C4 }, // Для L8
   {Db3,Db4,D3 ,D4, Eb3,Eb4,E3, E4 }, // Для L9
 // Например, кнопка, стоящая на пересечении D2 и L4 соответствует Eb4 
-
+// NNN означает отсутствие ноты, кнопка не используется для извлечения звуков
   };
+
+// Дополнительные функции клавиш, их 16:
+#define ___ 0x00 // - не назначена дополнительная функция
+#define _MD 0x01 // - кнопка Режим - если она нажата, разрешены дополнительные функции клавиш
+#define _PI 0x02 // - кнопка Плюс инструмент - выбрать следующий инструмент для текущего канала
+#define _MI 0x03 // - кнопка Минус инструмент - выбрать предыдущий инструмент для текущего канала
+#define _PV 0x04 // - кнопка Плюс громкость - увеличить громкость для текущего канала
+#define _MV 0x05 // - кнопка Минус громкость - уменьшить громкость для текущего канала
+#define _C0 0x06 // - кнопка Канал 0 - выбор канала 0
+#define _C1 0x07 // - кнопка Канал 1 - выбор канала 1
+#define _C2 0x08 // - кнопка Канал 2 - выбор канала 2
+#define _R0 0x09 // - регистр 0, сохранённая конфигурация инструментов
+#define _R1 0x0A // - регистр 1, сохранённая конфигурация инструментов
+#define _R2 0x0B // - регистр 2, сохранённая конфигурация инструментов
+#define _R3 0x0C // - регистр 3, сохранённая конфигурация инструментов
+#define _R4 0x0D // - регистр 4, сохранённая конфигурация инструментов
+#define _R5 0x0E // - регистр 5, сохранённая конфигурация инструментов
+#define _R6 0x0F // - регистр 6, сохранённая конфигурация инструментов
+#define _R7 0x10 // - регистр 7, сохранённая конфигурация инструментов
+
+char func_buttons[16]; // массив состояния дополнительных функций
+
+char func[10][8]  = {
+// Для Вашего инструмента нужно будет правильно заполнить эту матрицу.
+// Соответствие клавиш дополнительным функциям. Каждая строка соответствует линиям:
+// D0, D1, D2, D3, D4, D5, D6 ,D7
+  {___,___,___,___,___,___,___,___}, // Для L0
+  {___,___,___,___,___,___,___,___}, // Для L1
+  {___,___,___,___,___,___,___,___}, // Для L2
+  {___,___,___,___,_R7,___,___,_R6}, // Для L3
+  {___,___,_R5,___,___,_R4,___,_PV}, // Для L4
+  {_R3,___,_MV,_R2,_C2,_PI,_R1,_C1}, // Для L5
+  {_MI,_R0,_C0,_MD,___,___,___,___}, // Для L6
+  {___,___,___,___,___,___,___,___}, // Для L7
+  {___,___,___,___,___,___,___,___}, // Для L8
+  {___,___,___,___,___,___,___,___}, // Для L9
+// Например, кнопка, стоящая на пересечении D3 и L6 соответствует _MD, кнопке "Режим" 
+  };
+
+#define MD_MAX_INSTRUMENT 127
+#define MD_MAX_VOLUME 127
+#define MD_MAX_CHANNEL 4
+#define MD_SIZE (MD_MAX_CHANNEL*2)
+#define MD_SAVE_DELAY 4000 // Задержка в миллисекундах до сохранения настроек
+// Структура, используемая для сохранения настроек
+typedef struct
+{
+  char md_channel_instrument[MD_MAX_CHANNEL];
+  char md_channel_volume[MD_MAX_CHANNEL];
+} MD_DATA;
+
+// Глобальные переменные, ипользуются для изменения текущго режима
+char md_active = 0;
+char c0_active = 0;
+char c1_active = 0;
+char c2_active = 0;
+char md_current_channel = 0;
+long int md_delay = 0;
+long int md_delay_ok = 0;
+long int md_offset = 0;
+MD_DATA md_data = {{0,0,0,0},{64,64,64,64}};
+char* p_md_data = (char*)&md_data;
+
+// Здесь можно поменять номера каналов, значение должно быть меньше чем MD_MAX_CHANNEL
+#define CHANNEL0 0
+#define CHANNEL1 1
+#define CHANNEL2 2
+
 char i = 0;
 char j = 0;
 
@@ -229,36 +301,230 @@ void loop() {
   data[i] |= PIND & ((1<<D6_PD6) | (1<<D7_PD7));
 
   // Если предыдущее состояние кнопок не равно текущему. То есть что-то стало нажато или отпущено.
-  if (datap[i] != data[i])
+  //if (datap[i] != data[i])
   {
     // Канал MIDI 0
     char channel = 0;
     // Перебрать все 8 бит данных data
     for (j=0; j<8; j++)  
     {
-      /*
       // Здесь происходит выбор канала MIDI для полифонии (несколько инструментов на одной клавиатуре)
-      // По умолчанию выбран канал 0, но если раскомментировать этот код, то их будет три (0,1,2).
-      // L0 - L6 = канал 2 (Вся правая клавиатура)
-      // L7 - L9, D0,D2,D4,D6 = канал 0 (Бас левой клавиатуры)
-      // L7 - L9, D1,D3,D5,D7 = канал 1 (Аккорд левой клавиатуры)
+      // По умолчанию выбран канал 0, но если раскомментировать этот код, то их будет три (CHANNEL0,CHANNEL1,CHANNEL2).
+      // L0 - L6 = канал 0 (Вся правая клавиатура)
+      // L7 - L9, D0,D2,D4,D6 = канал 1 (Бас левой клавиатуры)
+      // L7 - L9, D1,D3,D5,D7 = канал 2 (Аккорд левой клавиатуры)
       // Это сделано под мой баян, в Вашем может быть по другому.
       if (i>= 7 && i<=9) 
-ф      {
+      {
         if (j==0 || j==2 || j==4 || j==6)
-          channel =0; 
+          channel = CHANNEL1; 
         else  
-          channel =1; 
+          channel = CHANNEL2; 
       } 
       else 
       {
-        channel = 2;
+        channel = CHANNEL0;
       }
-      */  
-      // Если кнопка была нажата, то начать звучание ноты (из таблицы соответствия нот кнопкам)
-      if (( data[i] & (1<<j)) && (~datap[i] & (1<<j))) noteOn(0x80 | channel, notes[i][j], 0x00);
-      // Если кнопка была отнажата, то прекратить звучание ноты (из таблицы соответствия нот кнопкам)
-      if ((~data[i] & (1<<j)) && ( datap[i] & (1<<j))) noteOn(0x90 | channel, notes[i][j], 127);
+
+      // Если кнопка была отжата
+      if (( data[i] & (1<<j)) && (~datap[i] & (1<<j)))
+      {
+        // Взять из таблицы дополнительную функцию кнопки
+        char current_func = func[i][j];
+        // Если функция кнопки - "Режим", то разрешить дополнительные функции кнопок и запретить звучание
+        if ((current_func == _MD)) md_active = 0;
+        // Если функция кнопки - "Канал 0" .. "Канал 2", то выставить флаг нажатия        
+        if ((current_func == _C0)) c0_active = 0;
+        if ((current_func == _C1)) c1_active = 0;
+        if ((current_func == _C2)) c2_active = 0;
+
+        // Дополнительные функции обрабатываются только при нажатой кнопке "Режим"
+        if (md_active == 1)
+        {
+          char register_changed = 0;
+          if (current_func == _R0) // Отжата кнопка "Регистр 0", прочитать регистр 0
+          {
+            md_offset = 0;
+            register_changed = 1;
+          }
+          if (current_func == _R1) // Отжата кнопка "Регистр 1", прочитать регистр 1
+          {
+            md_offset = MD_SIZE*1;
+            register_changed = 1;
+          }
+          if (current_func == _R2) // Отжата кнопка "Регистр 2", прочитать регистр 2
+          {
+            md_offset = MD_SIZE*2;
+            register_changed = 1;
+          }
+          if (current_func == _R3) // Отжата кнопка "Регистр 3", прочитать регистр 3
+          {
+            md_offset = MD_SIZE*3;
+            register_changed = 1;
+          }
+          if (current_func == _R4) // Отжата кнопка "Регистр 4", прочитать регистр 4
+          {
+            md_offset = MD_SIZE*4;
+            register_changed = 1;
+          }
+          if (current_func == _R5) // Отжата кнопка "Регистр 5", прочитать регистр 5
+          {
+            md_offset = MD_SIZE*5;
+            register_changed = 1;
+          }
+          if (current_func == _R6) // Отжата кнопка "Регистр 6", прочитать регистр 6
+          {
+            md_offset = MD_SIZE*6;
+            register_changed = 1;
+          }
+          if (current_func == _R7) // Отжата кнопка "Регистр 7", прочитать регистр 7
+          {
+            md_offset = MD_SIZE*7;
+            register_changed = 1;
+          }
+          // Применить изменения, если они были
+          if (register_changed == 1)
+          {
+            // Отменить таймер сохранения
+            md_delay_ok = md_delay;
+            // Прочитать конфигурацию
+            for (int cnt = 0; cnt<MD_MAX_CHANNEL;   cnt++)
+            { 
+              md_data.md_channel_instrument[cnt]= EEPROM.read(cnt+md_offset);
+            }
+            for (int cnt = 0; cnt<MD_MAX_CHANNEL; cnt++) 
+            {
+              md_data.md_channel_volume[cnt]    = EEPROM.read(MD_MAX_CHANNEL+cnt+md_offset);
+            }
+            // Для всех каналов задать инструмент и громкость
+            for (int cnt =0; cnt<MD_MAX_CHANNEL; cnt++)
+            {
+              // Если после чтения значения вышли за пределы - исправить
+              if (md_data.md_channel_instrument[cnt] > MD_MAX_INSTRUMENT) md_data.md_channel_instrument[cnt] = 0;
+              if (md_data.md_channel_volume[cnt] > MD_MAX_VOLUME) md_data.md_channel_volume[cnt] = 64;
+              // Задать параметры
+              Command2 ((0xC0 | cnt),md_data.md_channel_instrument[cnt]);
+              for (char a=0;a<100;a++);
+              Command3 ((0xB0 | cnt),0x07,md_data.md_channel_volume[cnt]);
+              for (char a=0;a<100;a++);
+            }
+          }
+        }
+        
+        // Если кнопка звуковая и дополнительные функции не активны, то то прекратить звучание ноты (из таблицы соответствия нот кнопкам)
+        if ((notes[i][j] != NNN) && (md_active == 0)) noteOn(0x80 | channel, notes[i][j], 0x00);
+      }
+      // Если кнопка была нажата
+      if ((~data[i] & (1<<j)) && ( datap[i] & (1<<j)))
+      {
+        // Взять из таблицы дополнительную функцию кнопки
+        char current_func = func[i][j];
+        // Если функция кнопки - "Режим", то запретить дополнительные функции кнопок и разрешить звучание
+        if ((current_func == _MD)) md_active = 1;
+        // Дополнительные функции обрабатываются только при нажатой кнопке "Режим"
+        if (md_active == 1)
+        {        
+          // Нажата кнопка "Канал 0", выбрать канал 0
+          if (current_func == _C0) {md_current_channel = CHANNEL0; c0_active = 1;
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);}
+          // Нажата кнопка "Канал 1", выбрать канал 1
+          if (current_func == _C1) {md_current_channel = CHANNEL1; c1_active = 1;
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);}
+          // Нажата кнопка "Канал 2", выбрать канал 2
+          if (current_func == _C2) {md_current_channel = CHANNEL2; c2_active = 1;
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);}
+          // Нажата кнопка "Плюс", задать следующий инструмент и подать команду о его смене для текущего канала
+          if (current_func == _PI)
+          {
+            if (md_data.md_channel_instrument[md_current_channel]<MD_MAX_INSTRUMENT)
+            {
+              md_data.md_channel_instrument[md_current_channel]++;
+              Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            }
+          }
+          // Нажата кнопка "Минус инструмент", задать предыдущий инструмент и подать команду о его смене для текущего канала
+          if (current_func == _MI)
+          {
+            if (md_data.md_channel_instrument[md_current_channel]>0)
+            {
+              md_data.md_channel_instrument[md_current_channel]--;
+              Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            }
+          }
+          // Нажата кнопка "Плюс громкость", увеличить громкость на 1 и подать команду о смене громкости для текущего канала
+          if (current_func == _PV)
+          {
+            if (md_data.md_channel_volume[md_current_channel]<MD_MAX_VOLUME)
+            {
+              md_data.md_channel_volume[md_current_channel]++;
+              Command3 ((0xB0 | md_current_channel),0x07,md_data.md_channel_volume[md_current_channel]);
+            }
+          }
+          // Нажата кнопка "Минус громкость", уменьшить громкость на 1 и подать команду о смене громкости для текущего канала
+          if (current_func == _MV)
+          {
+            if (md_data.md_channel_volume[md_current_channel]>0)
+            {
+              md_data.md_channel_volume[md_current_channel]--;
+              Command3 ((0xB0 | md_current_channel),0x07,md_data.md_channel_volume[md_current_channel]);
+            }
+          }
+          char register_changed = 0;
+          // Нажата одна из кнопок регистров. Запомнить время нажатия и номер регистра.
+          if (current_func == _R0) // Нажата кнопка "Регистр 0", начать отсчёт времени
+            { md_delay = millis(); md_offset = MD_SIZE*0;register_changed = 1;}
+          if (current_func == _R1) // Нажата кнопка "Регистр 1", начать отсчёт времени
+            { md_delay = millis(); md_offset = MD_SIZE*1;register_changed = 1;}
+          if (current_func == _R2) // Нажата кнопка "Регистр 2", начать отсчёт времени
+            { md_delay = millis(); md_offset = MD_SIZE*2;register_changed = 1;}
+          if (current_func == _R3) // Нажата кнопка "Регистр 3", начать отсчёт времени
+            { md_delay = millis(); md_offset = MD_SIZE*3;register_changed = 1;}
+          if (current_func == _R4) // Нажата кнопка "Регистр 4", начать отсчёт времени
+            { md_delay = millis(); md_offset = MD_SIZE*4;register_changed = 1;}
+          if (current_func == _R5) // Нажата кнопка "Регистр 5", начать отсчёт времени
+            { md_delay = millis(); md_offset = MD_SIZE*5;register_changed = 1;}
+          if (current_func == _R6) // Нажата кнопка "Регистр 6", начать отсчёт времени
+            { md_delay = millis(); md_offset = MD_SIZE*6;register_changed = 1;}
+          if (current_func == _R7) // Нажата кнопка "Регистр 7", начать отсчёт времени
+            { md_delay = millis(); md_offset = MD_SIZE*7;register_changed = 1;}
+
+          // Сохранить изменения, если они были, а также если нажаты все три кнопки канала одновременно
+          if ((register_changed == 1) && (c0_active == 1) && (c1_active == 1) && (c2_active == 1))
+          {
+            // Записать
+            for (int cnt = 0; cnt<MD_MAX_CHANNEL;   cnt++)
+            { 
+              EEPROM.write(cnt+md_offset,md_data.md_channel_instrument[cnt]);
+            }
+            for (int cnt = 0; cnt<MD_MAX_CHANNEL; cnt++) 
+            {
+              EEPROM.write(MD_MAX_CHANNEL+cnt+md_offset,md_data.md_channel_volume[cnt]);
+            }
+            // Для всех каналов задать инструмент и громкость
+            for (int cnt =0; cnt<MD_MAX_CHANNEL; cnt++)
+            {
+              // Если после чтения значения вышли за пределы - исправить
+              if (md_data.md_channel_instrument[cnt] > MD_MAX_INSTRUMENT) md_data.md_channel_instrument[cnt] = 0;
+              if (md_data.md_channel_volume[cnt] > MD_MAX_VOLUME) md_data.md_channel_volume[cnt] = 64;
+              // Задать параметры
+              Command2 ((0xC0 | cnt),md_data.md_channel_instrument[cnt]);
+              for (char a=0;a<100;a++);
+              Command3 ((0xB0 | cnt),0x07,md_data.md_channel_volume[cnt]);
+              for (char a=0;a<100;a++);
+            }
+          }
+        }
+        // Если кнопка звуковая и дополнительные функции не активны, то начать звучание ноты (из таблицы соответствия нот кнопкам)
+        if ((notes[i][j] != NNN) && (md_active == 0)) noteOn(0x90 | channel, notes[i][j], 127);
+      }
+      // Если кнопка постоянно отжата, предотвращение залипания кнопки "Режим"
+      if ((data[i] & (1<<j)))
+      {
+        if (func[i][j] == _MD) md_active = 0;
+        if (func[i][j] == _C0) c0_active = 0;
+        if (func[i][j] == _C1) c1_active = 0;
+        if (func[i][j] == _C2) c2_active = 0;
+      }
     }  
   }  
   // Обносить предыдущее значение 
@@ -290,3 +556,21 @@ void noteOn(int cmd, int pitch, int velocity) {
   Serial.write(pitch);
   Serial.write(velocity);
 }
+
+// Передать команду MIDI из двух байт.
+void Command2 (char byte1, char byte2)
+{
+  Serial.write(byte1);
+  Serial.write(byte2);
+  for (volatile unsigned int a=0;a<50;a++);
+}
+
+// Передать команду MIDI из трёх байт.
+void Command3 (char byte1, char byte2, char byte3)
+{
+  Serial.write(byte1);
+  Serial.write(byte2);
+  Serial.write(byte3);
+  for (volatile unsigned int a=0;a<50;a++);
+}
+
