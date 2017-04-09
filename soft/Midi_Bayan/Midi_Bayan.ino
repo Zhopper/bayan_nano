@@ -217,14 +217,17 @@ char notes[10][8]  = {
 #define _C0 0x06 // - кнопка Канал 0 - выбор канала 0
 #define _C1 0x07 // - кнопка Канал 1 - выбор канала 1
 #define _C2 0x08 // - кнопка Канал 2 - выбор канала 2
-#define _R0 0x09 // - регистр 0, сохранённая конфигурация инструментов
-#define _R1 0x0A // - регистр 1, сохранённая конфигурация инструментов
-#define _R2 0x0B // - регистр 2, сохранённая конфигурация инструментов
-#define _R3 0x0C // - регистр 3, сохранённая конфигурация инструментов
-#define _R4 0x0D // - регистр 4, сохранённая конфигурация инструментов
-#define _R5 0x0E // - регистр 5, сохранённая конфигурация инструментов
-#define _R6 0x0F // - регистр 6, сохранённая конфигурация инструментов
-#define _R7 0x10 // - регистр 7, сохранённая конфигурация инструментов
+#define _C3 0x09 // - кнопка Канал 3 - выбор канала 3
+#define _C4 0x0A // - кнопка Канал 4 - выбор канала 4
+#define _C5 0x0B // - кнопка Канал 5 - выбор канала 5
+#define _R0 0x0C // - регистр 0, сохранённая конфигурация инструментов
+#define _R1 0x0D // - регистр 1, сохранённая конфигурация инструментов
+#define _R2 0x0E // - регистр 2, сохранённая конфигурация инструментов
+#define _R3 0x0F // - регистр 3, сохранённая конфигурация инструментов
+#define _R4 0x10 // - регистр 4, сохранённая конфигурация инструментов
+#define _R5 0x11 // - регистр 5, сохранённая конфигурация инструментов
+#define _R6 0x12 // - регистр 6, сохранённая конфигурация инструментов
+#define _R7 0x13 // - регистр 7, сохранённая конфигурация инструментов
 
 char func_buttons[16]; // массив состояния дополнительных функций
 
@@ -236,8 +239,8 @@ char func[10][8]  = {
   {___,___,___,___,___,___,___,___}, // Для L1
   {___,___,___,___,___,___,___,___}, // Для L2
   {___,___,___,___,_R7,___,___,_R6}, // Для L3
-  {___,___,_R5,___,___,_R4,___,_PV}, // Для L4
-  {_R3,___,_MV,_R2,_C2,_PI,_R1,_C1}, // Для L5
+  {___,___,_R5,_C5,___,_R4,_C4,_PV}, // Для L4
+  {_R3,_C3,_MV,_R2,_C2,_PI,_R1,_C1}, // Для L5
   {_MI,_R0,_C0,_MD,___,___,___,___}, // Для L6
   {___,___,___,___,___,___,___,___}, // Для L7
   {___,___,___,___,___,___,___,___}, // Для L8
@@ -245,9 +248,41 @@ char func[10][8]  = {
 // Например, кнопка, стоящая на пересечении D3 и L6 соответствует _MD, кнопке "Режим" 
   };
 
+char chan[10][8]  = {
+// Для Вашего инструмента нужно будет правильно заполнить эту матрицу.
+// Соответствие клавиш MIDI каналам. 
+// Числа, которыми заполнена матрица - шестнадцатиричные. Это удобно для назначения кнопки сразу на два канала.
+// Например:
+// 0x00 означает что нота звучит только на канале 0
+// 0x11 означает что нота звучит только на канале 1
+// 0xFF означает что нота звучит только на канале 15
+// 0xF1 означает что нота звучит на канале 15 и на канале 1
+// 0x18 означает что нота звучит на канале 1 и на канале 8
+// Можно назначить ноту на любой из каналов, но он не должен быть больше чем MD_MAX_CHANNEL
+// Каждая строка соответствует линиям:
+// D0,  D1,  D2,  D3,  D4,  D5,  D6 , D7
+  {0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03}, // Для L0
+  {0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03}, // Для L1
+  {0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03}, // Для L2
+  {0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03}, // Для L3
+  {0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03}, // Для L4
+  {0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03}, // Для L5
+  {0x03,0x03,0x03,0x03,0x03,0x03,0x03,0x03}, // Для L6
+  {0x11,0x22,0x11,0x22,0x11,0x22,0x11,0x22}, // Для L7
+  {0x11,0x22,0x11,0x22,0x11,0x22,0x11,0x22}, // Для L8
+  {0x11,0x22,0x11,0x22,0x11,0x22,0x11,0x22}, // Для L9
+  };
+// Эти каналы должны быть такими же как и в таблице выше. Их можно переназначить.
+#define CHANNEL0 0
+#define CHANNEL1 1
+#define CHANNEL2 2
+#define CHANNEL3 3
+#define CHANNEL4 4
+#define CHANNEL5 5
+
 #define MD_MAX_INSTRUMENT 127
 #define MD_MAX_VOLUME 127
-#define MD_MAX_CHANNEL 4
+#define MD_MAX_CHANNEL 6
 #define MD_SIZE (MD_MAX_CHANNEL*2)
 #define MD_SAVE_DELAY 4000 // Задержка в миллисекундах до сохранения настроек
 #define MD_DEFAULT_NOTE C5
@@ -263,17 +298,17 @@ char md_active = 0;
 char c0_active = 0;
 char c1_active = 0;
 char c2_active = 0;
+char c3_active = 0;
+char c4_active = 0;
+char c5_active = 0;
 char md_current_channel = 0;
 long int md_delay = 0;
 long int md_delay_ok = 0;
 long int md_offset = 0;
-MD_DATA md_data = {{0,0,0,0},{64,64,64,64}};
+char md_chan_h = 0;
+char md_chan_l = 0;
+MD_DATA md_data = {{0,0,0,0,0,0},{64,64,64,64,64,64}};
 char* p_md_data = (char*)&md_data;
-
-// Здесь можно поменять номера каналов, значение должно быть меньше чем MD_MAX_CHANNEL
-#define CHANNEL0 0
-#define CHANNEL1 1
-#define CHANNEL2 2
 
 char i = 0;
 char j = 0;
@@ -304,29 +339,9 @@ void loop() {
   // Если предыдущее состояние кнопок не равно текущему. То есть что-то стало нажато или отпущено.
   //if (datap[i] != data[i])
   {
-    // Канал MIDI 0
-    char channel = 0;
     // Перебрать все 8 бит данных data
     for (j=0; j<8; j++)  
     {
-      // Здесь происходит выбор канала MIDI для полифонии (несколько инструментов на одной клавиатуре)
-      // По умолчанию выбран канал 0, но если раскомментировать этот код, то их будет три (CHANNEL0,CHANNEL1,CHANNEL2).
-      // L0 - L6 = канал 0 (Вся правая клавиатура)
-      // L7 - L9, D0,D2,D4,D6 = канал 1 (Бас левой клавиатуры)
-      // L7 - L9, D1,D3,D5,D7 = канал 2 (Аккорд левой клавиатуры)
-      // Это сделано под мой баян, в Вашем может быть по другому.
-      if (i>= 7 && i<=9) 
-      {
-        if (j==0 || j==2 || j==4 || j==6)
-          channel = CHANNEL1; 
-        else  
-          channel = CHANNEL2; 
-      } 
-      else 
-      {
-        channel = CHANNEL0;
-      }
-
       // Если кнопка была отжата
       if (( data[i] & (1<<j)) && (~datap[i] & (1<<j)))
       {
@@ -334,10 +349,13 @@ void loop() {
         char current_func = func[i][j];
         // Если функция кнопки - "Режим", то разрешить дополнительные функции кнопок и запретить звучание
         if ((current_func == _MD)) md_active = 0;
-        // Если функция кнопки - "Канал 0" .. "Канал 2", то выставить флаг нажатия        
+        // Если функция кнопки - "Канал 0" .. "Канал 5", то выставить флаг нажатия        
         if ((current_func == _C0)) c0_active = 0;
         if ((current_func == _C1)) c1_active = 0;
         if ((current_func == _C2)) c2_active = 0;
+        if ((current_func == _C3)) c3_active = 0;
+        if ((current_func == _C4)) c4_active = 0;
+        if ((current_func == _C5)) c5_active = 0;
 
         // Дополнительные функции обрабатываются только при нажатой кнопке "Режим"
         if (md_active == 1)
@@ -385,7 +403,8 @@ void loop() {
           }
           // Отжата одна из кнопок плюс/минус
           if ((current_func == _PI) || (current_func == _MI) || (current_func == _PV) || (current_func == _MV) || 
-              (current_func == _C0) || (current_func == _C1) || (current_func == _C2))
+              (current_func == _C0) || (current_func == _C1) || (current_func == _C2) ||
+              (current_func == _C3) || (current_func == _C4) || (current_func == _C5))
           {
             for (int cnt=0;cnt<MD_MAX_CHANNEL;cnt++) // На всех каналах
               Command3 ((0xB0 | cnt),0x7B,0); // Отключить звучание
@@ -419,9 +438,23 @@ void loop() {
             }
           }
         }
+
+        md_chan_h = (chan[i][j]>>4) & 0x0F; // Взять из таблицы номер старшего канала для текущей кнопки
+        md_chan_l = (chan[i][j]   ) & 0x0F; // Взять из таблицы номер младшего канала для текущей кнопки
         
         // Если кнопка звуковая и дополнительные функции не активны, то то прекратить звучание ноты (из таблицы соответствия нот кнопкам)
-        if ((notes[i][j] != NNN) && (md_active == 0)) noteOn(0x80 | channel, notes[i][j], 0x00);
+        if ((notes[i][j] != NNN) && (md_active == 0))
+        {
+          if (md_chan_h == md_chan_l)
+          {
+            noteOn(0x80 | md_chan_h, notes[i][j], 0x00);
+          }
+          else  
+          {
+            noteOn(0x80 | md_chan_h, notes[i][j], 0x00);
+            noteOn(0x80 | md_chan_l, notes[i][j], 0x00);
+          }
+        }
       }
       // Если кнопка была нажата
       if ((~data[i] & (1<<j)) && ( datap[i] & (1<<j)))
@@ -443,6 +476,18 @@ void loop() {
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Канал 2", выбрать канал 2
           if (current_func == _C2) {md_current_channel = CHANNEL2; c2_active = 1;
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
+          // Нажата кнопка "Канал 3", выбрать канал 3
+          if (current_func == _C3) {md_current_channel = CHANNEL3; c3_active = 1;
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
+          // Нажата кнопка "Канал 4", выбрать канал 4
+          if (current_func == _C4) {md_current_channel = CHANNEL4; c4_active = 1;
+            Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
+          // Нажата кнопка "Канал 5", выбрать канал 5
+          if (current_func == _C5) {md_current_channel = CHANNEL5; c5_active = 1;
             Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Плюс", задать следующий инструмент и подать команду о его смене для текущего канала
@@ -530,8 +575,23 @@ void loop() {
             }
           }
         }
+
+        md_chan_h = (chan[i][j]>>4) & 0x0F; // Взять из таблицы номер старшего канала для текущей кнопки
+        md_chan_l = (chan[i][j]   ) & 0x0F; // Взять из таблицы номер младшего канала для текущей кнопки
+
         // Если кнопка звуковая и дополнительные функции не активны, то начать звучание ноты (из таблицы соответствия нот кнопкам)
-        if ((notes[i][j] != NNN) && (md_active == 0)) noteOn(0x90 | channel, notes[i][j], 127);
+        if ((notes[i][j] != NNN) && (md_active == 0)) 
+        {
+          if (md_chan_h == md_chan_l)
+          {
+            noteOn(0x90 | md_chan_h, notes[i][j], 127);
+          }
+          else  
+          {
+            noteOn(0x90 | md_chan_h, notes[i][j], 127);
+            noteOn(0x90 | md_chan_l, notes[i][j], 127);
+          }
+        }
       }
       // Если кнопка постоянно отжата, предотвращение залипания кнопки "Режим"
       if ((data[i] & (1<<j)))
@@ -540,6 +600,9 @@ void loop() {
         if (func[i][j] == _C0) c0_active = 0;
         if (func[i][j] == _C1) c1_active = 0;
         if (func[i][j] == _C2) c2_active = 0;
+        if (func[i][j] == _C3) c3_active = 0;
+        if (func[i][j] == _C4) c4_active = 0;
+        if (func[i][j] == _C5) c5_active = 0;
       }
     }  
   }  
