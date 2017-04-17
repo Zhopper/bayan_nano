@@ -228,6 +228,7 @@ char notes[10][8]  = {
 #define _R5 0x11 // - регистр 5, сохранённая конфигурация инструментов
 #define _R6 0x12 // - регистр 6, сохранённая конфигурация инструментов
 #define _R7 0x13 // - регистр 7, сохранённая конфигурация инструментов
+#define _EP 0x14 // - кнопка эффекта Pitch (Опытная функция)
 
 char func_buttons[16]; // массив состояния дополнительных функций
 
@@ -239,7 +240,7 @@ char func[10][8]  = {
   {___,___,___,___,___,___,___,___}, // Для L1
   {___,___,___,___,___,___,___,___}, // Для L2
   {___,___,___,___,_R7,___,___,_R6}, // Для L3
-  {___,___,_R5,_C5,___,_R4,_C4,_PV}, // Для L4
+  {_EP,___,_R5,_C5,___,_R4,_C4,_PV}, // Для L4
   {_R3,_C3,_MV,_R2,_C2,_PI,_R1,_C1}, // Для L5
   {_MI,_R0,_C0,_MD,___,___,___,___}, // Для L6
   {___,___,___,___,___,___,___,___}, // Для L7
@@ -286,11 +287,16 @@ char chan[10][8]  = {
 #define MD_SIZE (MD_MAX_CHANNEL*2)
 #define MD_SAVE_DELAY 4000 // Задержка в миллисекундах до сохранения настроек
 #define MD_DEFAULT_NOTE C5
+#define MD_EFFECT_NO 0
+#define MD_EFFECT_PITCH 1
+#define MD_EFFECT_CHORUS 2
+#define MD_EFFECT_REVERB 3
 // Структура, используемая для сохранения настроек
 typedef struct
 {
   char md_channel_instrument[MD_MAX_CHANNEL];
   char md_channel_volume[MD_MAX_CHANNEL];
+  char md_pitch[MD_MAX_CHANNEL];
 } MD_DATA;
 
 // Глобальные переменные, ипользуются для изменения текущго режима
@@ -302,6 +308,7 @@ char c3_active = 0;
 char c4_active = 0;
 char c5_active = 0;
 char md_current_channel = 0;
+char md_current_effect = MD_EFFECT_NO;
 long int md_delay = 0;
 long int md_delay_ok = 0;
 long int md_offset = 0;
@@ -348,7 +355,11 @@ void loop() {
         // Взять из таблицы дополнительную функцию кнопки
         char current_func = func[i][j];
         // Если функция кнопки - "Режим", то разрешить дополнительные функции кнопок и запретить звучание
-        if ((current_func == _MD)) md_active = 0;
+        if ((current_func == _MD)) {
+          md_active = 0;
+          for (int cnt=0;cnt<MD_MAX_CHANNEL;cnt++) // На всех каналах
+            Command3 ((0xB0 | cnt),0x7B,0);        // Отключить звучание
+        }
         // Если функция кнопки - "Канал 0" .. "Канал 5", то выставить флаг нажатия        
         if ((current_func == _C0)) c0_active = 0;
         if ((current_func == _C1)) c1_active = 0;
@@ -404,7 +415,7 @@ void loop() {
           // Отжата одна из кнопок плюс/минус
           if ((current_func == _PI) || (current_func == _MI) || (current_func == _PV) || (current_func == _MV) || 
               (current_func == _C0) || (current_func == _C1) || (current_func == _C2) ||
-              (current_func == _C3) || (current_func == _C4) || (current_func == _C5))
+              (current_func == _C3) || (current_func == _C4) || (current_func == _C5) || (current_func == _EP))
           {
             for (int cnt=0;cnt<MD_MAX_CHANNEL;cnt++) // На всех каналах
               Command3 ((0xB0 | cnt),0x7B,0); // Отключить звучание
@@ -461,52 +472,82 @@ void loop() {
       {
         // Взять из таблицы дополнительную функцию кнопки
         char current_func = func[i][j];
-        // Если функция кнопки - "Режим", то запретить дополнительные функции кнопок и разрешить звучание
-        if ((current_func == _MD)) md_active = 1;
+        // Если функция кнопки - "Режим", то разрешить дополнительные функции кнопок и прекратить звучание
+        if ((current_func == _MD)){
+          md_active = 1;                           // Разрешить дополнительные функции
+          for (int cnt=0;cnt<MD_MAX_CHANNEL;cnt++) // На всех каналах
+            Command3 ((0xB0 | cnt),0x7B,0);        // Отключить звучание
+        }
         // Дополнительные функции обрабатываются только при нажатой кнопке "Режим"
         if (md_active == 1)
         {        
           // Нажата кнопка "Канал 0", выбрать канал 0
-          if (current_func == _C0) {md_current_channel = CHANNEL0; c0_active = 1;
+          if (current_func == _C0) {md_current_channel = CHANNEL0; c0_active = 1;md_current_effect = MD_EFFECT_NO;
             Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Канал 1", выбрать канал 1
-          if (current_func == _C1) {md_current_channel = CHANNEL1; c1_active = 1;
+          if (current_func == _C1) {md_current_channel = CHANNEL1; c1_active = 1;md_current_effect = MD_EFFECT_NO;
             Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Канал 2", выбрать канал 2
-          if (current_func == _C2) {md_current_channel = CHANNEL2; c2_active = 1;
+          if (current_func == _C2) {md_current_channel = CHANNEL2; c2_active = 1;md_current_effect = MD_EFFECT_NO;
             Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Канал 3", выбрать канал 3
-          if (current_func == _C3) {md_current_channel = CHANNEL3; c3_active = 1;
+          if (current_func == _C3) {md_current_channel = CHANNEL3; c3_active = 1;md_current_effect = MD_EFFECT_NO;
             Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Канал 4", выбрать канал 4
-          if (current_func == _C4) {md_current_channel = CHANNEL4; c4_active = 1;
+          if (current_func == _C4) {md_current_channel = CHANNEL4; c4_active = 1;md_current_effect = MD_EFFECT_NO;
             Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Канал 5", выбрать канал 5
-          if (current_func == _C5) {md_current_channel = CHANNEL5; c5_active = 1;
+          if (current_func == _C5) {md_current_channel = CHANNEL5; c5_active = 1;md_current_effect = MD_EFFECT_NO;
             Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
+          // Нажата кнопка "Эффект Pitch"
+          if (current_func == _EP) {md_current_effect = MD_EFFECT_PITCH;
+            Command3 ((0xE0 | md_current_channel), 0,md_data.md_pitch[md_current_channel]);
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127);}
           // Нажата кнопка "Плюс", задать следующий инструмент и подать команду о его смене для текущего канала
           if (current_func == _PI)
           {
-            if (md_data.md_channel_instrument[md_current_channel]<MD_MAX_INSTRUMENT) // Проверка максимального значения
+            if (md_current_effect == MD_EFFECT_NO)
             {
-              md_data.md_channel_instrument[md_current_channel]++; // Прибавить 1 к инструменту
-              Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]); // Сменить инструмент
+              if (md_data.md_channel_instrument[md_current_channel]<MD_MAX_INSTRUMENT) // Проверка максимального значения
+              {
+                md_data.md_channel_instrument[md_current_channel]++; // Прибавить 1 к инструменту
+                Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]); // Сменить инструмент
+              }
             }
-            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127); // Начать звучание установленным инструментом
+            if (md_current_effect == MD_EFFECT_PITCH)
+            {
+              if (md_data.md_pitch[md_current_channel]<MD_MAX_INSTRUMENT) // Проверка максимального значения
+              {
+                md_data.md_pitch[md_current_channel]++; // Прибавить 1
+                Command3 ((0xE0 | md_current_channel), 0,md_data.md_pitch[md_current_channel]); // Сменить pitch
+              }
+            }
+            noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127); // Начать звучание
           }
-          // Нажата кнопка "Минус инструмент", задать предыдущий инструмент и подать команду о его смене для текущего канала
+          // Нажата кнопка "Минус", задать предыдущий инструмент и подать команду о его смене для текущего канала
           if (current_func == _MI)
           {
-            if (md_data.md_channel_instrument[md_current_channel]>0) // Проверка минимального значения
+            if (md_current_effect == MD_EFFECT_NO)
             {
-              md_data.md_channel_instrument[md_current_channel]--; // Вычесть 1 из инструмента
-              Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]); // Сменить
+              if (md_data.md_channel_instrument[md_current_channel]>0) // Проверка минимального значения
+              {
+                md_data.md_channel_instrument[md_current_channel]--; // Вычесть 1 из инструмента
+                Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]); // Сменить
+              }
+            }
+            if (md_current_effect == MD_EFFECT_PITCH)
+            {
+              if (md_data.md_pitch[md_current_channel]>0) // Проверка минимального значения
+              {
+                md_data.md_pitch[md_current_channel]--; // Вычесть 1
+                Command3 ((0xE0 | md_current_channel), 0,md_data.md_pitch[md_current_channel]); // Сменить pitch
+              }
             }
             noteOn(0x90 | md_current_channel, MD_DEFAULT_NOTE, 127); // Начать звучание установленным инструментом
           }
@@ -584,12 +625,12 @@ void loop() {
         {
           if (md_chan_h == md_chan_l)
           {
-            noteOn(0x90 | md_chan_h, notes[i][j], 127);
+            if (md_data.md_channel_volume[md_chan_h]>0) noteOn(0x90 | md_chan_h, notes[i][j], 127);
           }
           else  
           {
-            noteOn(0x90 | md_chan_h, notes[i][j], 127);
-            noteOn(0x90 | md_chan_l, notes[i][j], 127);
+            if (md_data.md_channel_volume[md_chan_h]>0) noteOn(0x90 | md_chan_h, notes[i][j], 127);
+            if (md_data.md_channel_volume[md_chan_l]>0) noteOn(0x90 | md_chan_l, notes[i][j], 127);
           }
         }
       }
