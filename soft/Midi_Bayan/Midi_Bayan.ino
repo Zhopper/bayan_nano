@@ -23,6 +23,9 @@
  http://www.arduino.cc/en/Tutorial/Midi
 
  */
+
+// Раскомментируйте ЭТО если требуется отладка датчика давления. Для нормальной работы оставьте закомментированным.
+//#define DEBUG_PRESSURE
  
 #include <EEPROM.h>
 
@@ -63,9 +66,24 @@
 // Выводы с A0 по A5 могут использоваться только как D0 - D7 матрицы. Их нельзя использовать для L0 - L9. Их выходной ток недостаточен для питания датчиков Холла.
 // Выводы D0, D2 - D13 можно использовать для любых целей.
 
+// Определения датчика давления
+#define PRESS_MAX_VALUE 25   // Значение с датчика выше которого будет выдаваться максимальная громкость. Максимально допустимое давление в мехе.
+#define PRESS_MIN_VALUE 0    // Значение с датчика ниже которого команды MIDI не отправлются. Чтобы не отправлять команды при около-нулевой громкости.
+#define PRESS_MAX_VOLUME 127 // Максимальное значение громкости, отправляемое в MIDI команде. 1..127
+#define PRESS_FILTER 0.25    // Значение фильтра датчика давления. От 0 до 1. Ближе к 1 - слабая фильтрация. Ближе к 0 - сильная фильтрация.
+// Глобальные переменные датчика давления
+int press_raw_value;    // Выход с датчка необработанный
+int press_out_value;    // Выход с датчика после обработки и ограничения
+int press_prev_value;   // Предыдущее значение выхода датчика
+int press_center_value; // Среднее значение выхода датчика, необходимо для нахождения абсолютного значения.
+
 void setup() {
   // Инициализация последовательного порта и установка скорости MIDI (31250 бод):
+#ifdef DEBUG_PRESSURE
+  Serial.begin(57600);
+#else
   Serial.begin(31250);
+#endif  
   // Инициализация линий D0 - D7 на вход  
   DDRC  &= ~((1<<D0_PC0) | (1<<D1_PC1) | (1<<D2_PC2) | (1<<D3_PC3) | (1<<D4_PC4) | (1<<D5_PC5)); // Данные с холлов на вход
   DDRD  &= ~((1<<D6_PD6) | (1<<D7_PD7)); // Данные с холлов на вход
@@ -76,6 +94,8 @@ void setup() {
   PORTB &= ~((1<<L9_PB1) | (1<<L0_PB2) | (1<<L2_PB3) | (1<<L1_PB4) | (1<<L3_PB0) | (1<<L4_PB5)); // На всех холлах нули
   DDRD   |=  ((1<<L7_PD2) | (1<<L8_PD3) | (1<<L5_PD4) | (1<<L6_PD5)); // На выход для управления холлами
   PORTD  &= ~((1<<L7_PD2) | (1<<L8_PD3) | (1<<L5_PD4) | (1<<L6_PD5)); // На всех холлах нули
+  // Чтение среднего значения датчика давления   
+  press_center_value = analogRead(6);
 }
 
 // Ниже определения нот в формате C=До D=Ре E=Ми F=Фа G=Соль A=Ля B=Си
@@ -229,6 +249,7 @@ char notes[10][8]  = {
 #define _R6 0x12 // - регистр 6, сохранённая конфигурация инструментов
 #define _R7 0x13 // - регистр 7, сохранённая конфигурация инструментов
 #define _EP 0x14 // - кнопка эффекта Pitch (Опытная функция)
+#define _PS 0x15 // - кнопка датчика давления. Одно нажатие отключает, второе включает.
 
 char func_buttons[16]; // массив состояния дополнительных функций
 
@@ -240,7 +261,7 @@ char func[10][8]  = {
   {___,___,___,___,___,___,___,___}, // Для L1
   {___,___,___,___,___,___,___,___}, // Для L2
   {___,___,___,___,_R7,___,___,_R6}, // Для L3
-  {_EP,___,_R5,_C5,___,_R4,_C4,_PV}, // Для L4
+  {_EP,___,_R5,_C5,_PS,_R4,_C4,_PV}, // Для L4
   {_R3,_C3,_MV,_R2,_C2,_PI,_R1,_C1}, // Для L5
   {_MI,_R0,_C0,_MD,___,___,___,___}, // Для L6
   {___,___,___,___,___,___,___,___}, // Для L7
@@ -297,9 +318,11 @@ typedef struct
   char md_channel_instrument[MD_MAX_CHANNEL];
   char md_channel_volume[MD_MAX_CHANNEL];
   char md_pitch[MD_MAX_CHANNEL];
+  char md_pressure;
 } MD_DATA;
 
-// Глобальные переменные, ипользуются для изменения текущго режима
+// Глобальные переменные, используются для изменения текущго режима
+char md_pressure_lock = 0;
 char md_active = 0;
 char c0_active = 0;
 char c1_active = 0;
@@ -314,7 +337,7 @@ long int md_delay_ok = 0;
 long int md_offset = 0;
 char md_chan_h = 0;
 char md_chan_l = 0;
-MD_DATA md_data = {{0,0,0,0,0,0},{64,64,64,64,64,64}};
+MD_DATA md_data = {{0,0,0,0,0,0},{64,64,64,64,64,64},{64,64,64,64,64,64},0};
 char* p_md_data = (char*)&md_data;
 
 char i = 0;
@@ -322,6 +345,36 @@ char j = 0;
 
 // В цикле происходит опрос клавиш и отправка MIDI команд
 void loop() {
+  // ОБРАБОТКА ДАТЧИКА ДАВЛЕНИЯ
+  // Считать сырое (необработанное) значение датчика давления и вычесть из него среднее значение
+  press_raw_value = analogRead(6) - press_center_value;
+  // Значение должно быть положительным. А также отфильтровать его.
+  press_out_value = PRESS_FILTER*((float)(abs(press_raw_value))) + ((float)1.0-PRESS_FILTER)*(float)press_out_value;
+  // "Мёртвая зона" ниже которой выход датчика считается нулём.
+  if (press_out_value < PRESS_MIN_VALUE) press_out_value = 0; else press_out_value -= PRESS_MIN_VALUE;
+  // Ограничить значение. Оно должно быть не более максимального.
+  if (press_out_value > PRESS_MAX_VALUE) press_out_value = PRESS_MAX_VALUE;
+  // Если значение датчика поменялось, послать команду изменения громкости.
+  if (press_out_value != press_prev_value)
+  {
+#ifdef DEBUG_PRESSURE
+    // Вывести в порт значнеие с датчика 
+    Serial.println(press_out_value ,DEC);
+#else 
+    // Для всех каналов   
+    for (int channel=0; channel<MD_MAX_CHANNEL; channel++)
+    {
+      // Вычислить громкость канала из заданной громкости и выхода датчика давления.
+      // В зависимости от выхода датчика давления громкость будет изменяться от нуля до текущей заданной громкости канала.
+      int volume = (((long int)(md_data.md_channel_volume[channel]) * press_out_value / PRESS_MAX_VALUE));
+      // 0xB0 MIDI_CONTROL_CHANGE
+      // 0x07 MIDI_CONTROL_CHANNEL_VOLUME
+      if ((md_data.md_pressure == 1) && (md_pressure_lock == 0)) // Если датчик включен и не заблокирован кнопкой "Режим"
+        Command3(0xB0 | channel, 0x07,volume);
+    }
+#endif    
+  }
+  // ОБРАБОТКА КНОПОК
   data[i] = 0;
   // Включить линию датчиков Холла в соответствии со значением счётчика.
   // С каждым циклом выбираем одну из линий.
@@ -339,6 +392,7 @@ void loop() {
 
   // Задержка на 2000 счётов
   for (volatile int a=0;a<2000;a++);
+
   // Собрать один байт данных из линий D0 - D7
   data[i] |= PINC & ((1<<D0_PC0) | (1<<D1_PC1) | (1<<D2_PC2) | (1<<D3_PC3) | (1<<D4_PC4) | (1<<D5_PC5));
   data[i] |= PIND & ((1<<D6_PD6) | (1<<D7_PD7));
@@ -357,9 +411,14 @@ void loop() {
         // Если функция кнопки - "Режим", то разрешить дополнительные функции кнопок и запретить звучание
         if ((current_func == _MD)) {
           md_active = 0;
+          md_pressure_lock = 0; // Разблокировать датчик давления 
           for (int cnt=0;cnt<MD_MAX_CHANNEL;cnt++) // На всех каналах
+          {
             Command3 ((0xB0 | cnt),0x7B,0);        // Отключить звучание
+            Command3 ((0xB0 | cnt),0x07,md_data.md_channel_volume[cnt]); // задать громкость всем каналам
+          }  
         }
+
         // Если функция кнопки - "Канал 0" .. "Канал 5", то выставить флаг нажатия        
         if ((current_func == _C0)) c0_active = 0;
         if ((current_func == _C1)) c1_active = 0;
@@ -435,6 +494,8 @@ void loop() {
             {
               md_data.md_channel_volume[cnt]    = EEPROM.read(MD_MAX_CHANNEL+cnt+md_offset);
             }
+            md_data.md_pressure = EEPROM.read(MD_MAX_CHANNEL+MD_MAX_CHANNEL+MD_MAX_CHANNEL+md_offset);
+            
             // Для всех каналов задать инструмент и громкость
             for (int cnt =0; cnt<MD_MAX_CHANNEL; cnt++)
             {
@@ -475,12 +536,28 @@ void loop() {
         // Если функция кнопки - "Режим", то разрешить дополнительные функции кнопок и прекратить звучание
         if ((current_func == _MD)){
           md_active = 1;                           // Разрешить дополнительные функции
+          md_pressure_lock = 1;                    // Заблокировать датчик давления 
           for (int cnt=0;cnt<MD_MAX_CHANNEL;cnt++) // На всех каналах
+          {
             Command3 ((0xB0 | cnt),0x7B,0);        // Отключить звучание
+            Command3 ((0xB0 | cnt),0x07,md_data.md_channel_volume[cnt]); // задать громкость всем каналам
+          }  
         }
         // Дополнительные функции обрабатываются только при нажатой кнопке "Режим"
         if (md_active == 1)
         {        
+          if (current_func == _PS)  // Нажата кнопка - "Датчик давления" 
+          {
+            if (md_data.md_pressure == 1) // если был включен, то выключтить
+              md_data.md_pressure = 0;
+            else                          // если был выключен, то включить
+            {
+              press_center_value = analogRead(6);
+              md_data.md_pressure = 1;
+              for (int cnt=0;cnt<MD_MAX_CHANNEL;cnt++) // На всех каналах
+                Command3 ((0xB0 | cnt),0x07,0); // задать нулевую громкость всем каналам
+            }
+          }
           // Нажата кнопка "Канал 0", выбрать канал 0
           if (current_func == _C0) {md_current_channel = CHANNEL0; c0_active = 1;md_current_effect = MD_EFFECT_NO;
             Command2 ((0xC0 | md_current_channel),md_data.md_channel_instrument[md_current_channel]);
@@ -602,6 +679,8 @@ void loop() {
             {
               EEPROM.write(MD_MAX_CHANNEL+cnt+md_offset,md_data.md_channel_volume[cnt]);
             }
+            EEPROM.write(MD_MAX_CHANNEL+MD_MAX_CHANNEL+MD_MAX_CHANNEL+md_offset,md_data.md_pressure);
+            
             // Для всех каналов задать инструмент и громкость
             for (int cnt =0; cnt<MD_MAX_CHANNEL; cnt++)
             {
@@ -672,25 +751,31 @@ void loop() {
 //  cmd is greater than 127, or that data values are  less than 127:
 //  Функция проигрывающая ноту
 void noteOn(int cmd, int pitch, int velocity) {
+#ifndef DEBUG_PRESSURE
   Serial.write(cmd);
   Serial.write(pitch);
   Serial.write(velocity);
+#endif  
 }
 
 // Передать команду MIDI из двух байт.
 void Command2 (char byte1, char byte2)
 {
+#ifndef DEBUG_PRESSURE
   Serial.write(byte1);
   Serial.write(byte2);
   for (volatile unsigned int a=0;a<50;a++);
+#endif  
 }
 
 // Передать команду MIDI из трёх байт.
 void Command3 (char byte1, char byte2, char byte3)
 {
+#ifndef DEBUG_PRESSURE
   Serial.write(byte1);
   Serial.write(byte2);
   Serial.write(byte3);
   for (volatile unsigned int a=0;a<50;a++);
+#endif  
 }
 
